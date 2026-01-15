@@ -19,23 +19,47 @@ class DetectionService:
         user: Optional[str] = None
     ) -> Dict[str, Any]:
         """接收检测数据"""
-        detection = create_detection(
-            title=title,
-            message=message,
-            detection_type=detection_type,
-            url=url,
-            user=user
-        )
-        
-        saved_detection = self.repository.add(detection)
-        print(f"📨 收到检测数据: {title}")
-        
-        return {
-            'status': 'success',
-            'message': '检测数据接收成功',
-            'data_id': saved_detection.id,
-            'timestamp': saved_detection.timestamp.isoformat()
-        }
+        try:
+            detection = create_detection(
+                title=title,
+                message=message,
+                detection_type=detection_type,
+                url=url,
+                user=user
+            )
+            
+            saved_detection = self.repository.add(detection)
+            print(f"📨 收到检测数据: {title}")
+            
+            # 安全地获取ID，确保是int类型
+            try:
+                detection_id = int(saved_detection.id)
+            except (ValueError, TypeError) as e:
+                print(f"⚠️ ID转换失败: {e}，使用时间戳作为ID")
+                detection_id = int(datetime.now().timestamp() * 1000)
+            
+            # 安全地获取时间戳字符串
+            try:
+                timestamp_str = saved_detection.timestamp.isoformat()
+                # 确保是字符串类型
+                if not isinstance(timestamp_str, str):
+                    timestamp_str = str(timestamp_str)
+            except Exception as e:
+                print(f"⚠️ 时间戳转换失败: {e}，使用当前时间")
+                timestamp_str = datetime.now().isoformat()
+            
+            # 确保返回值的所有字段都是可序列化的类型
+            return {
+                'status': 'success',
+                'message': '检测数据接收成功',
+                'data_id': detection_id,  # 确保是int
+                'timestamp': timestamp_str  # 确保是str
+            }
+        except Exception as e:
+            print(f"❌ DetectionService.receive_detection 内部错误: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def get_detections(
         self,
@@ -68,5 +92,6 @@ class DetectionService:
                 'status': 'error',
                 'message': '数据不存在'
             }
+
 
 

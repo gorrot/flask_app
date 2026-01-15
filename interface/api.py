@@ -28,24 +28,128 @@ def create_app() -> Flask:
         try:
             data = request.get_json()
             
+            # 添加调试信息
+            print(f"📥 收到检测数据请求")
+            print(f"   数据类型: {data.get('type', '未指定')}")
+            print(f"   标题: {data.get('title', '未指定')[:50]}...")
+            print(f"   消息长度: {len(data.get('message', '')) if data else 0} 字符")
+            
             # 验证必要字段
             required_fields = ['title', 'message']
             for field in required_fields:
                 if field not in data:
+                    print(f"❌ 缺少必要字段: {field}")
                     return jsonify({'error': f'缺少必要字段: {field}'}), 400
             
-            result = detection_service.receive_detection(
-                title=data['title'],
-                message=data['message'],
-                detection_type=data.get('type', 'mill_change'),
-                url=data.get('url'),
-                user=data.get('user')
-            )
-            return jsonify(result)
+            # 先保存数据（即使后续出错，数据也已经保存）
+            try:
+                result = detection_service.receive_detection(
+                    title=data['title'],
+                    message=data['message'],
+                    detection_type=data.get('type', 'mill_change'),
+                    url=data.get('url'),
+                    user=data.get('user')
+                )
+                print(f"✅ 检测数据接收成功: ID={result.get('data_id')}")
+            except Exception as save_error:
+                import traceback
+                print(f"❌ 数据保存失败: {save_error}")
+                print(f"   错误堆栈:\n{traceback.format_exc()}")
+                return jsonify({'error': f'数据保存失败: {str(save_error)}'}), 500
+            
+            # 确保返回的数据可以正确序列化为JSON
+            try:
+                # 验证result是字典类型
+                if not isinstance(result, dict):
+                    print(f"⚠️ result不是字典类型: {type(result)}")
+                    raise TypeError(f"result类型错误: {type(result)}")
+                
+                # 安全地转换data_id
+                data_id = result.get('data_id', 0)
+                if data_id is None:
+                    print(f"⚠️ data_id为None，使用0")
+                    data_id = 0
+                try:
+                    data_id = int(data_id)
+                except (ValueError, TypeError) as e:
+                    print(f"⚠️ data_id转换失败: {data_id} (类型: {type(data_id)})，使用0")
+                    data_id = 0
+                
+                # 安全地转换timestamp
+                timestamp = result.get('timestamp', '')
+                if timestamp is None:
+                    timestamp = ''
+                elif not isinstance(timestamp, str):
+                    # 如果是datetime对象或其他类型，尝试转换
+                    if hasattr(timestamp, 'isoformat'):
+                        try:
+                            timestamp = timestamp.isoformat()
+                        except Exception as e:
+                            print(f"⚠️ timestamp.isoformat()失败: {e}")
+                            timestamp = str(timestamp) if timestamp else ''
+                    else:
+                        timestamp = str(timestamp) if timestamp else ''
+                
+                # 构建安全的响应字典
+                safe_result = {
+                    'status': 'success',
+                    'message': str(result.get('message', '检测数据接收成功')),
+                    'data_id': data_id,
+                    'timestamp': timestamp
+                }
+                
+                # 测试JSON序列化（提前发现问题）
+                import json
+                try:
+                    json.dumps(safe_result)
+                except (TypeError, ValueError) as json_test_error:
+                    print(f"❌ JSON序列化测试失败: {json_test_error}")
+                    print(f"   safe_result内容: {safe_result}")
+                    raise
+                
+                json_response = jsonify(safe_result)
+                print(f"✅ JSON响应准备完成")
+                return json_response
+                
+            except Exception as json_error:
+                import traceback
+                print(f"❌ JSON响应构建失败: {json_error}")
+                print(f"   原始result类型: {type(result)}")
+                print(f"   原始result内容: {result}")
+                print(f"   错误堆栈:\n{traceback.format_exc()}")
+                
+                # 即使JSON序列化失败，数据已经保存，返回简化响应
+                try:
+                    # 尝试获取data_id（最安全的方式）
+                    fallback_data_id = 0
+                    if isinstance(result, dict):
+                        try:
+                            fallback_data_id = int(result.get('data_id', 0)) if result.get('data_id') is not None else 0
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    return jsonify({
+                        'status': 'success',
+                        'message': '检测数据已保存（响应序列化警告）',
+                        'data_id': fallback_data_id
+                    })
+                except Exception as fallback_error:
+                    # 最后的保险：返回最简单的响应
+                    print(f"❌ 简化响应也失败: {fallback_error}")
+                    return jsonify({
+                        'status': 'success',
+                        'message': '检测数据已保存'
+                    })
             
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
             print(f"❌ 处理检测数据失败: {e}")
-            return jsonify({'error': f'处理失败: {str(e)}'}), 500
+            print(f"❌ 错误堆栈:\n{error_trace}")
+            return jsonify({
+                'error': f'处理失败: {str(e)}',
+                'traceback': error_trace if app.debug else None
+            }), 500
     
     @app.route('/get_detections', methods=['GET'])
     def get_detections():

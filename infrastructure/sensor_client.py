@@ -67,3 +67,4 @@ def flatten_device_item(dev: dict) -> Dict[str, Any]:
     return out
 
 
+

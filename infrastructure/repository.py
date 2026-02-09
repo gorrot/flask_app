@@ -34,6 +34,47 @@ class InMemoryDetectionRepository:
         """获取所有数据"""
         with self._lock:
             return self._data[-limit:] if self._data else []
+
+    def get_by_types(self, types: List[str], limit: int = 50) -> List[Detection]:
+        """按类型筛选，返回指定类型的最新 limit 条（用于三期等按类型拉取）"""
+        with self._lock:
+            if not types:
+                return self._data[-limit:] if self._data else []
+            type_set = set(types)
+            filtered = [d for d in self._data if d.detection_type.value in type_set]
+            return filtered[-limit:] if filtered else []
+
+    def get_by_types_balanced(self, types: List[str], limit: int = 50) -> List[Detection]:
+        """多类型固定配额，且每类型至少 1 条（若有）：先保证每类最新 1 条，再按时间填满 limit。
+        避免 load_monitor、phase3_mill_change 等低频类型被完全挤出。"""
+        with self._lock:
+            if not types:
+                return self._data[-limit:] if self._data else []
+            type_list = list(dict.fromkeys(types))
+            n = len(type_list)
+            quota = max(1, (limit + n - 1) // n)
+            by_type: dict = {t: [] for t in type_list}
+            for d in self._data:
+                t = d.detection_type.value
+                if t not in by_type:
+                    continue
+                by_type[t].append(d)
+            # 1）每类型至少 1 条（取该类型最新一条）
+            guaranteed = []
+            for t in type_list:
+                if by_type[t]:
+                    guaranteed.append(by_type[t][-1])
+            guaranteed_ids = {d.id for d in guaranteed}
+            # 2）每类型最多 quota 条，去掉已选的 1 条，其余加入候选池，按 id 降序
+            rest = []
+            for t in type_list:
+                lst = by_type[t][-quota:]
+                rest.extend([d for d in lst if d.id not in guaranteed_ids])
+            rest.sort(key=lambda d: d.id, reverse=True)
+            # 3）结果 = 每类至少 1 条 + 按时间填满至 limit
+            result = guaranteed + rest[: max(0, limit - len(guaranteed))]
+            result.sort(key=lambda d: d.id, reverse=True)
+            return result[:limit]
     
     def mark_as_read(self, detection_id: int) -> bool:
         """标记数据为已读"""
@@ -61,6 +102,17 @@ class InMemoryDetectionRepository:
                 d for d in self._data 
                 if d.status == DetectionStatus.UNREAD
             ])
+
+    def count_by_types(self, types: List[str]) -> dict:
+        """按类型统计数量，用于召回检查。返回 { type_value: count }"""
+        with self._lock:
+            type_set = set(types)
+            counts = {}
+            for d in self._data:
+                t = d.detection_type.value
+                if t in type_set:
+                    counts[t] = counts.get(t, 0) + 1
+            return counts
 
 
 

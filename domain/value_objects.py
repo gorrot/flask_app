@@ -12,6 +12,9 @@ class DetectionType(str, Enum):
     BELT_STATUS = "belt_status"
     EMPTY_MILL = "empty_mill"
     LOAD_MONITOR = "load_monitor"  # 负载监控
+    PHASE3_LOAD_MONITOR = "phase3_load_monitor"  # 三期 #5-#8 机组负荷
+    PHASE3_MILL_STATUS = "phase3_mill_status"    # 三期 #5-#8 磨煤机状态
+    PHASE3_MILL_CHANGE = "phase3_mill_change"    # 三期 #5-#8 倒磨检测
     TEST = "test"
 
 

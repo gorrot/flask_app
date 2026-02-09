@@ -29,23 +29,15 @@ class DetectionService:
             )
             
             saved_detection = self.repository.add(detection)
-            print(f"📨 收到检测数据: {title}")
-            
-            # 安全地获取ID，确保是int类型
             try:
                 detection_id = int(saved_detection.id)
-            except (ValueError, TypeError) as e:
-                print(f"⚠️ ID转换失败: {e}，使用时间戳作为ID")
+            except (ValueError, TypeError):
                 detection_id = int(datetime.now().timestamp() * 1000)
-            
-            # 安全地获取时间戳字符串
             try:
                 timestamp_str = saved_detection.timestamp.isoformat()
-                # 确保是字符串类型
                 if not isinstance(timestamp_str, str):
                     timestamp_str = str(timestamp_str)
-            except Exception as e:
-                print(f"⚠️ 时间戳转换失败: {e}，使用当前时间")
+            except Exception:
                 timestamp_str = datetime.now().isoformat()
             
             # 确保返回值的所有字段都是可序列化的类型
@@ -56,9 +48,6 @@ class DetectionService:
                 'timestamp': timestamp_str  # 确保是str
             }
         except Exception as e:
-            print(f"❌ DetectionService.receive_detection 内部错误: {e}")
-            import traceback
-            traceback.print_exc()
             raise
     
     def get_detections(
@@ -66,11 +55,18 @@ class DetectionService:
         data_type: str = 'all',
         limit: int = 50
     ) -> Dict[str, Any]:
-        """获取检测数据"""
+        """获取检测数据。data_type 为 all/unread 时按原逻辑；否则按逗号分隔的类型过滤（如 phase3_load_monitor,phase3_mill_status）。"""
         if data_type == 'unread':
             detections = self.repository.get_unread(limit)
-        else:
+        elif data_type == 'all':
             detections = self.repository.get_all(limit)
+        else:
+            types = [t.strip() for t in data_type.split(',') if t.strip()]
+            # 多类型时使用固定配额：每种类型最多 ceil(limit/类型数) 条，从机制上根除少类型被挤出
+            if len(types) > 1:
+                detections = self.repository.get_by_types_balanced(types, limit=limit)
+            else:
+                detections = self.repository.get_by_types(types, limit)
         
         return {
             'status': 'success',

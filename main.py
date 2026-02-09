@@ -28,6 +28,7 @@ if __name__ == '__main__':
     print("📋 可用接口:")
     print("   POST /receive_detection - 接收检测数据")
     print("   GET  /get_detections - 获取检测数据")
+    print("   GET  /recall/phase3 - 三期数据召回检查（排查不显示）")
     print("   POST /mark_read - 标记已读")
     print("   GET  /get_stats - 获取统计信息")
     print("   GET  /get_belt_status - 获取皮带状态")

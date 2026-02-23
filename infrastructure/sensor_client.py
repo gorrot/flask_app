@@ -1,6 +1,6 @@
 import requests
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 BASE = "http://iot.lwbsq.com"
 
@@ -38,6 +38,48 @@ def get_realtime_data(token: str, groupId: Optional[str] = None) -> list:
     return j["data"]
 
 
+def get_history_data(
+    token: str,
+    startTime: int,
+    endTime: int,
+    groupId: Optional[str] = None,
+    deviceAddr: Optional[str] = None,
+    limit: int = 1000,
+) -> list:
+    """获取历史传感器数据（/api/data/historyList）"""
+    headers = {"authorization": token}
+    params: Dict[str, Any] = {
+        "startTime": startTime,
+        "endTime": endTime,
+        "limit": limit,
+    }
+    if groupId:
+        params["groupId"] = groupId
+    if deviceAddr:
+        params["deviceAddr"] = deviceAddr
+
+    r = requests.get(
+        f"{BASE}/api/data/historyList",
+        headers=headers,
+        params=params,
+        timeout=30
+    )
+    r.raise_for_status()
+    j = r.json()
+    if j.get("code") != 1000:
+        raise RuntimeError(f"historyList failed: {j.get('message')}")
+
+    data = j.get("data")
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("list", "records", "rows", "data"):
+            v = data.get(key)
+            if isinstance(v, list):
+                return v
+    return []
+
+
 def flatten_device_item(dev: dict) -> Dict[str, Any]:
     """
     把平台 dataItem/registerItem 摊平成好用结构
@@ -64,6 +106,25 @@ def flatten_device_item(dev: dict) -> Dict[str, Any]:
                     "unit": unit,
                     "alarmLevel": alarm
                 }
+    return out
+
+
+def flatten_history_item(item: dict) -> Dict[str, Any]:
+    """将历史记录统一为扁平结构，便于 App 展示。"""
+    ts = item.get("recordTime") or item.get("timeStamp") or 0
+    out = {
+        "deviceAddr": item.get("deviceAddr"),
+        "deviceName": item.get("deviceName"),
+        "registerName": item.get("registerName") or item.get("dataName"),
+        "dataValue": item.get("dataValue") if item.get("dataValue") is not None else item.get("value"),
+        "dataText": item.get("dataText"),
+        "unit": item.get("unit"),
+        "alarmLevel": item.get("alarmLevel"),
+        "recordTime": ts,
+        "recordTimeStr": item.get("recordTimeStr"),
+    }
+    if not out["recordTimeStr"] and ts:
+        out["recordTimeStr"] = datetime.fromtimestamp((ts or 0) / 1000).strftime("%Y-%m-%d %H:%M:%S")
     return out
 
 

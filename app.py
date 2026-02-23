@@ -53,6 +53,26 @@ class DetectionDataManager:
         with data_lock:
             return detection_data[-limit:] if detection_data else []
 
+    def get_data_by_types(self, types, limit=50):
+        """按类型过滤并返回数据，多类型时每类至少保留最新一条，避免 belt_status 等被挤出"""
+        if not types:
+            return self.get_all_data(limit)
+        with data_lock:
+            type_set = set(types)
+            filtered = [d for d in detection_data if d.get('type') in type_set]
+            if not filtered:
+                return []
+            n = len(types)
+            quota = max(1, (limit + n - 1) // n)
+            by_type = {}
+            for t in types:
+                by_type[t] = [d for d in filtered if d.get('type') == t]
+            result = []
+            for t in types:
+                result.extend(by_type[t][-quota:])
+            result.sort(key=lambda d: d.get('id', 0), reverse=True)
+            return result[:limit]
+
     def mark_as_read(self, data_id):
         """标记数据为已读"""
         with data_lock:
@@ -103,15 +123,19 @@ def receive_detection():
 
 @app.route('/get_detections', methods=['GET'])
 def get_detections():
-    """获取检测数据 - 手机APP调用"""
+    """获取检测数据 - 手机APP调用。支持 type=all / unread / 逗号分隔类型(如 load_monitor,belt_status)。"""
     try:
-        data_type = request.args.get('type', 'all')  # all, unread
+        data_type = request.args.get('type', 'all')
         limit = int(request.args.get('limit', 50))
 
         if data_type == 'unread':
             data = data_manager.get_unread_data(limit)
-        else:
+        elif data_type == 'all':
             data = data_manager.get_all_data(limit)
+        else:
+            # 按请求的类型过滤，确保 belt_status 等类型能被返回
+            types = [t.strip() for t in data_type.split(',') if t.strip()]
+            data = data_manager.get_data_by_types(types, limit)
 
         return jsonify({
             'status': 'success',

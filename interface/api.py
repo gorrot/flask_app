@@ -171,6 +171,23 @@ def create_app() -> Flask:
             return jsonify(result)
         else:
             return jsonify(result), 500
+
+    @app.route("/api/history", methods=['GET'])
+    def api_history():
+        """???????????????? 7 ??"""
+        groupId = request.args.get("groupId")
+        deviceAddr = request.args.get("deviceAddr")
+        days = int(request.args.get("days", 7))
+        limit = int(request.args.get("limit", 1000))
+        result = sensor_service.get_recent_history(
+            days=days,
+            groupId=groupId,
+            deviceAddr=deviceAddr,
+            limit=limit
+        )
+        if result.get("ok"):
+            return jsonify(result)
+        return jsonify(result), 500
     
     # ==================== 测试和健康检查 ====================
     

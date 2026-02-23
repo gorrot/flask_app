@@ -1,5 +1,5 @@
-﻿from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, List
 
 from infrastructure.sensor_client import (
     get_token,
@@ -53,26 +53,53 @@ class SensorService:
 
             end_dt = datetime.now()
             start_dt = end_dt - timedelta(days=safe_days)
-            start_ms = int(start_dt.timestamp() * 1000)
-            end_ms = int(end_dt.timestamp() * 1000)
+            # 文档 3.3: historyList 要求字符串时间格式 YYYY-MM-dd HH:mm:ss
+            start_str = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+            end_str = end_dt.strftime("%Y-%m-%d %H:%M:%S")
 
             token = get_token(self.login_name, self.password)
-            raw = get_history_data(
-                token=token,
-                startTime=start_ms,
-                endTime=end_ms,
-                groupId=groupId,
-                deviceAddr=deviceAddr,
-                limit=safe_limit,
-            )
-            flat = [flatten_history_item(d) for d in raw]
+
+            # 文档 3.3: 必须提供 deviceAddr 和 nodeId；nodeId = -1 可查询全部节点
+            device_addrs: List[str] = []
+            if deviceAddr:
+                device_addrs = [str(deviceAddr)]
+            else:
+                realtime = get_realtime_data(token, groupId=groupId)
+                for dev in realtime:
+                    addr = dev.get("deviceAddr")
+                    if addr is not None:
+                        device_addrs.append(str(addr))
+
+            if not device_addrs:
+                return {
+                    "ok": True,
+                    "days": safe_days,
+                    "startTime": start_str,
+                    "endTime": end_str,
+                    "count": 0,
+                    "data": [],
+                }
+
+            flat: List[Dict[str, Any]] = []
+            for addr in device_addrs:
+                raw = get_history_data(
+                    token=token,
+                    startTime=start_str,
+                    endTime=end_str,
+                    deviceAddr=addr,
+                    nodeId=-1,
+                )
+                for item in raw:
+                    flat.extend(flatten_history_item(item))
+
             flat.sort(key=lambda x: x.get("recordTime") or 0, reverse=True)
+            flat = flat[:safe_limit]
 
             return {
                 "ok": True,
                 "days": safe_days,
-                "startTime": start_ms,
-                "endTime": end_ms,
+                "startTime": start_str,
+                "endTime": end_str,
                 "count": len(flat),
                 "data": flat,
             }
